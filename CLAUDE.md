@@ -57,11 +57,13 @@ Both pair with `bestMarginalBuyRate(pools)` / `bestMarginalSellRate(pools)`, whi
 
 ### Transaction building
 
-All prepare functions (`prepareBuyTokens`, `prepareSellTokens`, `prepareWithdrawAll`, `prepareCreatePool`) return `{ transactionBuilder, inputUtxos }` instead of broadcasting directly. Consumers call `.send()` on the builder to broadcast, or `.build()` to get the raw hex. Use `transactionBuilder.calculateTransactionFee()` for the fee and fee rate; the `inputUtxos` array is provided for consumers that want the raw input set.
+All prepare functions (`prepareBuyTokens`, `prepareSellTokens`, `prepareWithdrawAll`, `prepareCreatePool`) return `{ transactionBuilder, inputUtxos }` instead of broadcasting directly. Consumers call `.send()` on the builder to broadcast, or `.build()` to get the raw hex. Use `transactionBuilder.calculateTransactionFee()` for the fee and fee rate.
 
-Transactions use CashScript's `TransactionBuilder` (not the contract's higher-level `.functions` API) to manually compose inputs/outputs with `maximumFeeSatsPerByte: 5`. Contracts use `p2sh32` address type. The swap fee is 0.3% (calculated differently for buys vs sells to match the on-chain contract).
+Transactions use CashScript's `TransactionBuilder` (not the contract's higher-level `.functions` API) to manually compose inputs/outputs with `maximumFeeSatsPerByte: BUILDER_MAX_FEE_SATS_PER_BYTE`. Contracts use `p2sh32` address type. The swap fee is 0.3% (calculated differently for buys vs sells to match the on-chain contract).
 
-UTXO selection: `prepareBuyTokens` uses `gatherBchUtxos` (multi-input, since trade amounts can be large). `prepareSellTokens` uses `gatherTokenUtxos` (multi-input for tokens) + a single BCH fee UTXO. `prepareCreatePool` uses both `gatherTokenUtxos` and `gatherBchUtxos`. Fee calculation uses a base fee + 180 sats per additional user input (+ 600 sats per additional pool in multi-pool mode).
+UTXO selection: `prepareBuyTokens` uses `gatherBchUtxos` (multi-input, since trade amounts can be large). `prepareSellTokens` uses `gatherTokenUtxos` + `gatherBchUtxos` for any shortfall. `prepareCreatePool` uses both.
+
+Miner fees (`src/fees.ts`): each prepare function takes an optional trailing `feeRateSatsPerByte`, defaulting to 1.2. The exact fee is settled by the BCH change output, which is therefore always added last. Funding failures throw the typed errors in `src/errors.ts`.
 
 Pool creation (`prepareCreatePool`): Derives the owner's token address and PKH from the signer, templates the contract artifact, and builds a transaction that sends BCH + tokens to the contract's token address. Output order: pool UTXO (index 0), `OP_RETURN SUMMON <PKH>` (index 1, for indexer discovery), then change outputs. Unlike buy/sell/withdraw, it does not take a `userTokenAddress` parameter — the address is derived from the signer.
 
@@ -72,6 +74,6 @@ Pool creation (`prepareCreatePool`): Derives the owner's token address and PKH f
 
 ### Testing
 
-Tests use `MockNetworkProvider` from CashScript to avoid real blockchain calls. Test files are in `test/` and mirror the main API functions. Tests verify transaction serialization via `.build()` and validate fee rates (1-5 sat/byte) using `transactionBuilder.calculateTransactionFee()`. Use `.debug()` to verify contract script evaluation — `.build()` only serializes the transaction without evaluating the script.
+Tests use `MockNetworkProvider` from CashScript to avoid real blockchain calls. Test files are in `test/` and mirror the main API functions. Tests verify transaction serialization via `.build()` and assert the exact fee rate with `test/utils.ts:expectFeeRate()`. Use `.debug()` to verify contract script evaluation — `.build()` only serializes the transaction without evaluating the script.
 
 Sell tests cover single token input, multiple small token inputs, exact balance (no change), and combined BCH+tokens on a single input. `test/multipool.test.ts` covers the pure algorithm (split correctness, rounding, pool elimination). `test/multipoolSwap.test.ts` covers multi-pool transaction building with 2-3 pools.

@@ -6,6 +6,7 @@ import {
 import { prepareWithdrawAll } from '../src/index.js';
 import { cauldronArtifactWithPkh, convertPoolToUtxo } from '../src/utils.js';
 import type { CauldronActivePool } from '../src/interfaces.js';
+import { expectFeeRate } from './utils.js';
 
 const testUserTokenAddress = "bitcoincash:zps99uejnueu4dsv0dd2m9u9uzxntg66nymvueqaan"
 const testUserWif = "KxjDY9xhYKGGCygpxUBpCp3QUBqY8kmUf2F1TE1P2Wr3eYuNWwjD"
@@ -34,7 +35,6 @@ describe('prepareWithdrawAll', () => {
     expect(() => transactionBuilder.debug()).not.toThrow()
     
     transactionBuilder.build()
-    const { feeSatsPerByte } = transactionBuilder.calculateTransactionFee()
-    expect(feeSatsPerByte > 1 && feeSatsPerByte < 5).toBe(true);
+    expectFeeRate(transactionBuilder)
   })
 })

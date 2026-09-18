@@ -5,6 +5,7 @@ import {
 } from 'cashscript';
 import { decodeTransactionUnsafe, hexToBin, binToHex } from '@bitauth/libauth';
 import { prepareCreatePool } from '../src/index.js';
+import { expectFeeRate } from './utils.js';
 
 // This is the token address derived from testUserWif on mainnet
 const testUserTokenAddress = "bitcoincash:zps99uejnueu4dsv0dd2m9u9uzxntg66nymvueqaan"
@@ -66,8 +67,7 @@ describe('prepareCreatePool', () => {
     expect(ownerPkh).toBeDefined()
 
     transactionBuilder.build()
-    const { feeSatsPerByte } = transactionBuilder.calculateTransactionFee()
-    expect(feeSatsPerByte > 1 && feeSatsPerByte < 5).toBe(true)
+    expectFeeRate(transactionBuilder)
   })
 
   test('should succeed with exact token balance (no token change)', async() => {
@@ -82,8 +82,7 @@ describe('prepareCreatePool', () => {
     )
 
     const txHex = transactionBuilder.build()
-    const { feeSatsPerByte } = transactionBuilder.calculateTransactionFee()
-    expect(feeSatsPerByte > 1 && feeSatsPerByte < 5).toBe(true)
+    expectFeeRate(transactionBuilder)
 
     // With exact token balance there should be no token change output
     const decoded = decodeTransactionUnsafe(hexToBin(txHex))
@@ -106,8 +105,7 @@ describe('prepareCreatePool', () => {
     )
 
     transactionBuilder.build()
-    const { feeSatsPerByte } = transactionBuilder.calculateTransactionFee()
-    expect(feeSatsPerByte > 1 && feeSatsPerByte < 5).toBe(true)
+    expectFeeRate(transactionBuilder)
   })
 
   test('should include OP_RETURN with SUMMON and owner PKH', async() => {

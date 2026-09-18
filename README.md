@@ -160,6 +160,67 @@ const { transactionBuilder } = await prepareBuyTokens(
 const txDetails = await transactionBuilder.send()
 ```
 
+## Miner Fees
+
+Every prepare function targets an exact fee rate and settles it from the serialized transaction size,
+returning the remainder to the user in a BCH change output. The default is **1.2 sats/byte**, just above
+the 1 sat/byte relay floor.
+
+Pass a different rate as the last argument of any prepare function:
+
+```ts
+import { prepareBuyTokens, DEFAULT_FEE_RATE_SATS_PER_BYTE } from "@mr-zwets/cauldron-swap-sdk"
+
+// 2 sats/byte, for example to get a large transaction mined faster
+const { transactionBuilder } = await prepareBuyTokens(
+  cauldronPools,
+  amountToBuy,
+  userTokenAddress,
+  signer,
+  provider,
+  undefined,  // userUtxos
+  2,
+)
+
+// what the transaction actually pays
+const { feeSats, feeSatsPerByte } = transactionBuilder.calculateTransactionFee()
+```
+
+The rate must be at least 1 (the relay policy floor) and below 10 sats/byte, which the builders pass as
+a `maximumFeeSatsPerByte` safety cap.
+
+Because a sell settles the fee from the transaction's whole BCH surplus, the sale proceeds can pay for it:
+`prepareSellTokens` no longer requires a separate BCH UTXO when the proceeds cover the fee. On a trade so
+small that the remainder after the fee is below the dust limit, no change output can be created and the
+remainder goes to the miner.
+
+Note that the change output locks the builder: cashscript refuses any further BCH input or output once a
+change output has been added, so a returned `transactionBuilder` can be inspected, signed and broadcast,
+but not extended with extra outputs.
+
+## Errors
+
+Funding failures throw typed errors carrying how much was missing, so a wallet can act on them without
+matching error strings:
+
+```ts
+import { prepareSellTokens, InsufficientFundsError, InsufficientTokensError } from "@mr-zwets/cauldron-swap-sdk"
+
+try {
+  await prepareSellTokens(cauldronPools, amountToSell, userTokenAddress, signer)
+} catch (error) {
+  if (error instanceof InsufficientTokensError) {
+    console.log(`Need ${error.shortfallTokens} more tokens`)
+  } else if (error instanceof InsufficientFundsError) {
+    console.log(`Need ${error.shortfallSats} more sats`)
+  } else throw error
+}
+```
+
+`shortfallSats` is the amount that will make the transaction work, miner fee included. Everything else —
+invalid arguments, a non-token address, a fee rate out of range, a key that does not own the pool — throws
+a plain `Error`, since those are programming mistakes rather than states a user can resolve.
+
 ## Custom Arifacts
 
 The Cauldron contract does not have a ready-to-go CashScript artifact, so custom artifacts were created to be able to use the CashScript SDK tooling.
