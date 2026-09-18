@@ -4,7 +4,8 @@ import {
   randomUtxo,
   type Utxo,
 } from 'cashscript';
-import { CauldronManager, DEFAULT_FEE_RATE_SATS_PER_BYTE } from '../src/index.js';
+import { CauldronManager } from '../src/index.js';
+import { DEFAULT_FEE_RATE_SATS_PER_BYTE } from '../src/fees.js';
 import { cauldronArtifactWithPkh, convertPoolToUtxo } from '../src/utils.js';
 import type { CauldronActivePool } from '../src/interfaces.js';
 import { expectFeeRate } from './utils.js';
