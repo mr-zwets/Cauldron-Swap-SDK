@@ -5,7 +5,6 @@ import {
 } from 'cashscript';
 import { decodeTransactionUnsafe, hexToBin, binToHex } from '@bitauth/libauth';
 import { prepareCreatePool } from '../src/index.js';
-import { calculateTransactionFee } from './utils.js';
 
 // This is the token address derived from testUserWif on mainnet
 const testUserTokenAddress = "bitcoincash:zps99uejnueu4dsv0dd2m9u9uzxntg66nymvueqaan"
@@ -59,16 +58,16 @@ describe('prepareCreatePool', () => {
     ]
     const provider = setupCreatePoolTx(userInputs)
 
-    const { transactionBuilder, inputUtxos, poolContractAddress, ownerPkh } = await prepareCreatePool(
+    const { transactionBuilder, poolContractAddress, ownerPkh } = await prepareCreatePool(
       testTokenId, 100_000n, 100n, testUserWif, 'mainnet', provider
     )
 
     expect(poolContractAddress).toBeDefined()
     expect(ownerPkh).toBeDefined()
 
-    const txHex = transactionBuilder.build()
-    const { txFeeRate } = calculateTransactionFee(txHex, inputUtxos)
-    expect(txFeeRate > 1 && txFeeRate < 5).toBe(true)
+    transactionBuilder.build()
+    const { feeSatsPerByte } = transactionBuilder.calculateTransactionFee()
+    expect(feeSatsPerByte > 1 && feeSatsPerByte < 5).toBe(true)
   })
 
   test('should succeed with exact token balance (no token change)', async() => {
@@ -78,13 +77,13 @@ describe('prepareCreatePool', () => {
     ]
     const provider = setupCreatePoolTx(userInputs)
 
-    const { transactionBuilder, inputUtxos } = await prepareCreatePool(
+    const { transactionBuilder } = await prepareCreatePool(
       testTokenId, 100_000n, 100n, testUserWif, 'mainnet', provider
     )
 
     const txHex = transactionBuilder.build()
-    const { txFeeRate } = calculateTransactionFee(txHex, inputUtxos)
-    expect(txFeeRate > 1 && txFeeRate < 5).toBe(true)
+    const { feeSatsPerByte } = transactionBuilder.calculateTransactionFee()
+    expect(feeSatsPerByte > 1 && feeSatsPerByte < 5).toBe(true)
 
     // With exact token balance there should be no token change output
     const decoded = decodeTransactionUnsafe(hexToBin(txHex))
@@ -102,13 +101,13 @@ describe('prepareCreatePool', () => {
     ]
     const provider = setupCreatePoolTx(userInputs)
 
-    const { transactionBuilder, inputUtxos } = await prepareCreatePool(
+    const { transactionBuilder } = await prepareCreatePool(
       testTokenId, 100_000n, 100n, testUserWif, 'mainnet', provider
     )
 
-    const txHex = transactionBuilder.build()
-    const { txFeeRate } = calculateTransactionFee(txHex, inputUtxos)
-    expect(txFeeRate > 1 && txFeeRate < 5).toBe(true)
+    transactionBuilder.build()
+    const { feeSatsPerByte } = transactionBuilder.calculateTransactionFee()
+    expect(feeSatsPerByte > 1 && feeSatsPerByte < 5).toBe(true)
   })
 
   test('should include OP_RETURN with SUMMON and owner PKH', async() => {
@@ -118,7 +117,7 @@ describe('prepareCreatePool', () => {
     ]
     const provider = setupCreatePoolTx(userInputs)
 
-    const { transactionBuilder, inputUtxos, ownerPkh } = await prepareCreatePool(
+    const { transactionBuilder, ownerPkh } = await prepareCreatePool(
       testTokenId, 100_000n, 100n, testUserWif, 'mainnet', provider
     )
 
@@ -145,7 +144,7 @@ describe('prepareCreatePool', () => {
     ]
     const provider = setupCreatePoolTx(userInputs)
 
-    const { transactionBuilder, inputUtxos } = await prepareCreatePool(
+    const { transactionBuilder } = await prepareCreatePool(
       testTokenId, poolSats, poolTokens, testUserWif, 'mainnet', provider
     )
 

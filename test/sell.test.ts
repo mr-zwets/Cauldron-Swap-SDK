@@ -7,7 +7,6 @@ import {
 import { prepareSellTokens } from '../src/index.js';
 import { cauldronArtifactWithPkh, convertPoolToUtxo } from '../src/utils.js';
 import type { CauldronActivePool } from '../src/interfaces.js';
-import { calculateTransactionFee } from './utils.js';
 
 const testUserTokenAddress = "bitcoincash:zps99uejnueu4dsv0dd2m9u9uzxntg66nymvueqaan"
 const testUserWif = "KxjDY9xhYKGGCygpxUBpCp3QUBqY8kmUf2F1TE1P2Wr3eYuNWwjD"
@@ -63,14 +62,14 @@ describe('prepareSellTokens', () => {
     ]
     const provider = setupSellTx(userInputs)
 
-    const { transactionBuilder, inputUtxos } = await prepareSellTokens(
+    const { transactionBuilder } = await prepareSellTokens(
       [testFuruPool], 100n, testUserTokenAddress, testUserWif, provider
     )
     expect(() => transactionBuilder.debug()).not.toThrow()
 
-    const txHex = transactionBuilder.build()
-    const { txFeeRate } = calculateTransactionFee(txHex, inputUtxos)
-    expect(txFeeRate > 1 && txFeeRate < 5).toBe(true);
+    transactionBuilder.build()
+    const { feeSatsPerByte } = transactionBuilder.calculateTransactionFee()
+    expect(feeSatsPerByte > 1 && feeSatsPerByte < 5).toBe(true);
   })
 
   test('should succeed with multiple small token inputs', async() => {
@@ -83,14 +82,14 @@ describe('prepareSellTokens', () => {
     ]
     const provider = setupSellTx(userInputs)
 
-    const { transactionBuilder, inputUtxos } = await prepareSellTokens(
+    const { transactionBuilder } = await prepareSellTokens(
       [testFuruPool], 100n, testUserTokenAddress, testUserWif, provider
     )
     expect(() => transactionBuilder.debug()).not.toThrow()
 
-    const txHex = transactionBuilder.build()
-    const { txFeeRate } = calculateTransactionFee(txHex, inputUtxos)
-    expect(txFeeRate > 1 && txFeeRate < 5).toBe(true);
+    transactionBuilder.build()
+    const { feeSatsPerByte } = transactionBuilder.calculateTransactionFee()
+    expect(feeSatsPerByte > 1 && feeSatsPerByte < 5).toBe(true);
   })
 
   test('should succeed with exact token balance (no token change)', async() => {
@@ -100,14 +99,14 @@ describe('prepareSellTokens', () => {
     ]
     const provider = setupSellTx(userInputs)
 
-    const { transactionBuilder, inputUtxos } = await prepareSellTokens(
+    const { transactionBuilder } = await prepareSellTokens(
       [testFuruPool], 200n, testUserTokenAddress, testUserWif, provider
     )
     expect(() => transactionBuilder.debug()).not.toThrow()
 
-    const txHex = transactionBuilder.build()
-    const { txFeeRate } = calculateTransactionFee(txHex, inputUtxos)
-    expect(txFeeRate > 1 && txFeeRate < 5).toBe(true);
+    transactionBuilder.build()
+    const { feeSatsPerByte } = transactionBuilder.calculateTransactionFee()
+    expect(feeSatsPerByte > 1 && feeSatsPerByte < 5).toBe(true);
   })
 
   test('should succeed with combined bch + tokens on single input', async() => {
@@ -117,13 +116,13 @@ describe('prepareSellTokens', () => {
     ]
     const provider = setupSellTx(userInputs)
 
-    const { transactionBuilder, inputUtxos } = await prepareSellTokens(
+    const { transactionBuilder } = await prepareSellTokens(
       [testFuruPool], 100n, testUserTokenAddress, testUserWif, provider
     )
     expect(() => transactionBuilder.debug()).not.toThrow()
     
-    const txHex = transactionBuilder.build()
-    const { txFeeRate } = calculateTransactionFee(txHex, inputUtxos)
-    expect(txFeeRate > 1 && txFeeRate < 5).toBe(true);
+    transactionBuilder.build()
+    const { feeSatsPerByte } = transactionBuilder.calculateTransactionFee()
+    expect(feeSatsPerByte > 1 && feeSatsPerByte < 5).toBe(true);
   })
 })

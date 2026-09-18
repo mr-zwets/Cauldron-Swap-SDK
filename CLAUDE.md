@@ -57,7 +57,7 @@ Both pair with `bestMarginalBuyRate(pools)` / `bestMarginalSellRate(pools)`, whi
 
 ### Transaction building
 
-All prepare functions (`prepareBuyTokens`, `prepareSellTokens`, `prepareWithdrawAll`, `prepareCreatePool`) return `{ transactionBuilder, inputUtxos }` instead of broadcasting directly. Consumers call `.send()` on the builder to broadcast, or `.build()` to get the raw hex. The `inputUtxos` array is provided for external fee calculation.
+All prepare functions (`prepareBuyTokens`, `prepareSellTokens`, `prepareWithdrawAll`, `prepareCreatePool`) return `{ transactionBuilder, inputUtxos }` instead of broadcasting directly. Consumers call `.send()` on the builder to broadcast, or `.build()` to get the raw hex. Use `transactionBuilder.calculateTransactionFee()` for the fee and fee rate; the `inputUtxos` array is provided for consumers that want the raw input set.
 
 Transactions use CashScript's `TransactionBuilder` (not the contract's higher-level `.functions` API) to manually compose inputs/outputs with `maximumFeeSatsPerByte: 5`. Contracts use `p2sh32` address type. The swap fee is 0.3% (calculated differently for buys vs sells to match the on-chain contract).
 
@@ -72,6 +72,6 @@ Pool creation (`prepareCreatePool`): Derives the owner's token address and PKH f
 
 ### Testing
 
-Tests use `MockNetworkProvider` from CashScript to avoid real blockchain calls. Test files are in `test/` and mirror the main API functions. Tests verify transaction serialization via `.build()` and validate fee rates (1-5 sat/byte) using `test/utils.ts:calculateTransactionFee()`. Use `.debug()` to verify contract script evaluation — `.build()` only serializes the transaction without evaluating the script.
+Tests use `MockNetworkProvider` from CashScript to avoid real blockchain calls. Test files are in `test/` and mirror the main API functions. Tests verify transaction serialization via `.build()` and validate fee rates (1-5 sat/byte) using `transactionBuilder.calculateTransactionFee()`. Use `.debug()` to verify contract script evaluation — `.build()` only serializes the transaction without evaluating the script.
 
 Sell tests cover single token input, multiple small token inputs, exact balance (no change), and combined BCH+tokens on a single input. `test/multipool.test.ts` covers the pure algorithm (split correctness, rounding, pool elimination). `test/multipoolSwap.test.ts` covers multi-pool transaction building with 2-3 pools.

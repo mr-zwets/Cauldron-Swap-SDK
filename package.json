@@ -1,6 +1,6 @@
 {
   "name": "@mr-zwets/cauldron-swap-sdk",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "scripts": {
     "prepare": "pnpm build",
     "build": "tsc",
@@ -17,11 +17,11 @@
   "description": "TypeScript SDK for trading on the Cauldron DEX on Bitcoin Cash, built with the CashScript SDK",
   "dependencies": {
     "@bitauth/libauth": "3.1.0-next.8",
-    "cashscript": "^0.13.0"
+    "cashscript": "^0.13.3"
   },
   "devDependencies": {
     "typescript": "^6.0.2",
-    "vitest": "4.1.1"
+    "vitest": "5.0.1"
   },
   "packageManager": "pnpm@10.12.2"
 }

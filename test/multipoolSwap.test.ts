@@ -7,7 +7,6 @@ import {
 import { prepareBuyTokens, prepareSellTokens } from '../src/index.js';
 import { cauldronArtifactWithPkh, convertPoolToUtxo } from '../src/utils.js';
 import type { CauldronActivePool } from '../src/interfaces.js';
-import { calculateTransactionFee } from './utils.js';
 
 const testUserTokenAddress = "bitcoincash:zps99uejnueu4dsv0dd2m9u9uzxntg66nymvueqaan"
 const testUserWif = "KxjDY9xhYKGGCygpxUBpCp3QUBqY8kmUf2F1TE1P2Wr3eYuNWwjD"
@@ -67,14 +66,14 @@ describe('multi-pool buy', () => {
     const userInputs = [randomUtxo({ satoshis: 500_000_000n })];
     const provider = setupMultiPoolProvider(pools, userInputs);
 
-    const { transactionBuilder, inputUtxos } = await prepareBuyTokens(
+    const { transactionBuilder } = await prepareBuyTokens(
       pools, 1000n, testUserTokenAddress, testUserWif, provider
     );
     expect(() => transactionBuilder.debug()).not.toThrow();
     
-    const txHex = transactionBuilder.build();
-    const { txFeeRate } = calculateTransactionFee(txHex, inputUtxos);
-    expect(txFeeRate > 1 && txFeeRate < 5).toBe(true);
+    transactionBuilder.build();
+    const { feeSatsPerByte } = transactionBuilder.calculateTransactionFee()
+    expect(feeSatsPerByte > 1 && feeSatsPerByte < 5).toBe(true);
   });
 
   test('should build valid tx with 3 pools', async () => {
@@ -82,14 +81,14 @@ describe('multi-pool buy', () => {
     const userInputs = [randomUtxo({ satoshis: 500_000_000n })];
     const provider = setupMultiPoolProvider(pools, userInputs);
 
-    const { transactionBuilder, inputUtxos } = await prepareBuyTokens(
+    const { transactionBuilder } = await prepareBuyTokens(
       pools, 500n, testUserTokenAddress, testUserWif, provider
     );
     expect(() => transactionBuilder.debug()).not.toThrow();
 
-    const txHex = transactionBuilder.build();
-    const { txFeeRate } = calculateTransactionFee(txHex, inputUtxos);
-    expect(txFeeRate > 1 && txFeeRate < 5).toBe(true);
+    transactionBuilder.build();
+    const { feeSatsPerByte } = transactionBuilder.calculateTransactionFee()
+    expect(feeSatsPerByte > 1 && feeSatsPerByte < 5).toBe(true);
   });
 
   test('single pool in array still works', async () => {
@@ -97,14 +96,14 @@ describe('multi-pool buy', () => {
     const userInputs = [randomUtxo({ satoshis: 100_000_000n })];
     const provider = setupMultiPoolProvider(pools, userInputs);
 
-    const { transactionBuilder, inputUtxos } = await prepareBuyTokens(
+    const { transactionBuilder } = await prepareBuyTokens(
       pools, 100n, testUserTokenAddress, testUserWif, provider
     );
     expect(() => transactionBuilder.debug()).not.toThrow();
 
-    const txHex = transactionBuilder.build();
-    const { txFeeRate } = calculateTransactionFee(txHex, inputUtxos);
-    expect(txFeeRate > 1 && txFeeRate < 5).toBe(true);
+    transactionBuilder.build();
+    const { feeSatsPerByte } = transactionBuilder.calculateTransactionFee()
+    expect(feeSatsPerByte > 1 && feeSatsPerByte < 5).toBe(true);
   });
 
   test('should fail with insufficient BCH for multi-pool trade', async () => {
@@ -128,14 +127,14 @@ describe('multi-pool sell', () => {
     ];
     const provider = setupMultiPoolProvider(pools, userInputs);
 
-    const { transactionBuilder, inputUtxos } = await prepareSellTokens(
+    const { transactionBuilder } = await prepareSellTokens(
       pools, 500n, testUserTokenAddress, testUserWif, provider
     );
     expect(() => transactionBuilder.debug()).not.toThrow();
     
-    const txHex = transactionBuilder.build();
-    const { txFeeRate } = calculateTransactionFee(txHex, inputUtxos);
-    expect(txFeeRate > 1 && txFeeRate < 5).toBe(true);
+    transactionBuilder.build();
+    const { feeSatsPerByte } = transactionBuilder.calculateTransactionFee()
+    expect(feeSatsPerByte > 1 && feeSatsPerByte < 5).toBe(true);
   });
 
   test('should build valid tx with 3 pools', async () => {
@@ -146,14 +145,14 @@ describe('multi-pool sell', () => {
     ];
     const provider = setupMultiPoolProvider(pools, userInputs);
 
-    const { transactionBuilder, inputUtxos } = await prepareSellTokens(
+    const { transactionBuilder } = await prepareSellTokens(
       pools, 300n, testUserTokenAddress, testUserWif, provider
     );
     expect(() => transactionBuilder.debug()).not.toThrow();
 
-    const txHex = transactionBuilder.build();
-    const { txFeeRate } = calculateTransactionFee(txHex, inputUtxos);
-    expect(txFeeRate > 1 && txFeeRate < 5).toBe(true);
+    transactionBuilder.build();
+    const { feeSatsPerByte } = transactionBuilder.calculateTransactionFee()
+    expect(feeSatsPerByte > 1 && feeSatsPerByte < 5).toBe(true);
   });
 
   test('single pool in array still works', async () => {
@@ -164,14 +163,14 @@ describe('multi-pool sell', () => {
     ];
     const provider = setupMultiPoolProvider(pools, userInputs);
 
-    const { transactionBuilder, inputUtxos } = await prepareSellTokens(
+    const { transactionBuilder } = await prepareSellTokens(
       pools, 100n, testUserTokenAddress, testUserWif, provider
     );
     expect(() => transactionBuilder.debug()).not.toThrow();
     
-    const txHex = transactionBuilder.build();
-    const { txFeeRate } = calculateTransactionFee(txHex, inputUtxos);
-    expect(txFeeRate > 1 && txFeeRate < 5).toBe(true);
+    transactionBuilder.build();
+    const { feeSatsPerByte } = transactionBuilder.calculateTransactionFee()
+    expect(feeSatsPerByte > 1 && feeSatsPerByte < 5).toBe(true);
   });
 
   test('should fail with insufficient BCH for multi-pool trade', async () => {
