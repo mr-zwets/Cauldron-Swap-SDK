@@ -4,3 +4,4 @@ export { DEFAULT_FEE_RATE_SATS_PER_BYTE, BUILDER_MAX_FEE_SATS_PER_BYTE, assertVa
 export { computeBuyAmountBelowRate, computeSellAmountAboveRate, computeOptimalBuy, computeOptimalSell, calcBuyFromPool, calcSellToPool, bestMarginalBuyRate, bestMarginalSellRate, computeEffectiveBuyImpact, computeEffectiveSellImpact, computeMarginalBuyImpact, computeMarginalSellImpact } from './multipool.js';
 export { CAULDRON_INDEXER_URLS, getCauldronPools } from './indexer.js';
 export { prepareBuyTokens, prepareSellTokens, prepareWithdrawAll, prepareCreatePool } from './transactions.js';
+export { CauldronManager, type CauldronManagerConfig } from './cauldronManager.js';

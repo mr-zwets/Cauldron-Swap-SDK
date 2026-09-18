@@ -28,6 +28,7 @@ pnpm test -- --run test/swap.test.ts  # run a single test file
 - `src/index.ts` — Barrel re-exporting the public API, nothing else
 - `src/transactions.ts` — `prepareBuyTokens`, `prepareSellTokens`, `prepareWithdrawAll`, `prepareCreatePool`
 - `src/indexer.ts` — `getCauldronPools` and the indexer URLs
+- `src/cauldronManager.ts` — `CauldronManager`, which binds a provider and fee rate and forwards to the functions above
 - `src/multipool.ts` — Pure bigint math module for optimal trade splitting across multiple pools. Exports `computeOptimalBuy`, `computeOptimalSell`, rate-targeted helpers (`computeBuyAmountBelowRate`, `computeSellAmountAboveRate`), price-impact helpers (`bestMarginalBuyRate`, `bestMarginalSellRate`, `computeEffectiveBuyImpact`/`Sell`, `computeMarginalBuyImpact`/`Sell`), and math utilities (`isqrt`, `ceilDiv`, `calcBuyFromPool`, `calcSellToPool`)
 - `src/utils.ts` — `cauldronArtifactWithPkh()` patches a `<withdraw_pkh>` placeholder in artifact bytecode at runtime; `convertPoolToUtxo()` adapts pool data to CashScript UTXO format; `validateTokenAddress()` validates CashAddress is token-aware; `gatherBchUtxos()` / `gatherTokenUtxos()` for UTXO selection
 - `src/interfaces.ts` — `CauldronActivePool`, `PoolAllocation` and `CauldronNetwork` type definitions
