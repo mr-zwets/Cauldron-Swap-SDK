@@ -33,7 +33,7 @@ pnpm test -- --run test/swap.test.ts  # run a single test file
 - `src/utils.ts` — `cauldronArtifactWithPkh()` patches a `<withdraw_pkh>` placeholder in artifact bytecode at runtime; `convertPoolToUtxo()` adapts pool data to CashScript UTXO format; `validateTokenAddress()` validates CashAddress is token-aware; `gatherBchUtxos()` / `gatherTokenUtxos()` for UTXO selection
 - `src/interfaces.ts` — `CauldronActivePool`, `PoolAllocation` and `CauldronNetwork` type definitions
 - `src/fees.ts` / `src/errors.ts` — Fee rate handling and the typed funding errors
-- `src/artifact/` — Two custom CashScript JSON artifacts (swap and managePool) since the Cauldron contract is raw BCH Script, not CashScript (see `artifacts.md` for rationale)
+- `src/artifact/` — Two custom CashScript JSON artifacts (swap and managePool) since the Cauldron contract is raw BCH Script, not CashScript (see `docs/artifacts.md` for rationale)
 
 ### Why two artifacts
 

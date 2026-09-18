@@ -4,7 +4,7 @@ TypeScript SDK for trading on the [Cauldron DEX](https://cauldron.quest) on Bitc
 
 ## Overview
 
-`prepareBuyTokens` and `prepareSellTokens` accept an array of pools and optimally split the trade across them using binary search on the marginal rate of the constant product curve, so each pool ends up at the same marginal cost — minimizing total price impact. Pools that don't save enough to justify their extra transaction bytes are automatically dropped. See [multi-pool.md](multi-pool.md) for details on the algorithm.
+`prepareBuyTokens` and `prepareSellTokens` accept an array of pools and optimally split the trade across them using binary search on the marginal rate of the constant product curve, so each pool ends up at the same marginal cost — minimizing total price impact. Pools that don't save enough to justify their extra transaction bytes are automatically dropped. See [docs/multi-pool.md](docs/multi-pool.md) for details on the algorithm.
 
 **Note:** Pools are fetched from the Cauldron indexer API, which is a trusted third party. All token amounts are in base units (raw on-chain amounts, `bigint`) — BCMR decimal places are not supported.
 
@@ -15,6 +15,32 @@ Install the cauldron-swap-sdk from NPM with:
 ```bash
 pnpm install @mr-zwets/cauldron-swap-sdk
 ```
+
+## CauldronManager
+
+`CauldronManager` binds a provider and a fee rate so they don't have to be repeated on every call, and
+keeps the indexer and the transactions on the same network. It is the recommended entry point:
+
+```ts
+import { ElectrumNetworkProvider } from 'cashscript';
+import { CauldronManager } from "@mr-zwets/cauldron-swap-sdk"
+import { userTokenAddress, signer } from "./config"
+
+const cauldron = new CauldronManager({
+  provider: new ElectrumNetworkProvider('mainnet'),
+  feeRateSatsPerByte: 2,  // optional, defaults to 1.2
+})
+
+const cauldronPools = await cauldron.getCauldronPools(tokenId)
+const { transactionBuilder } = await cauldron.prepareBuyTokens(cauldronPools, 100n, userTokenAddress, signer)
+
+const txDetails = await transactionBuilder.send()
+```
+
+The network comes from the provider, so `getCauldronPools` cannot end up querying a different one than the
+transaction is built for. A provider on a network Cauldron has no indexer for is rejected by the
+constructor. Every method forwards to the standalone function of the same name, which stays exported for
+one-off use — the sections below use those directly.
 
 ## Buy Tokens
 
@@ -136,67 +162,46 @@ const txDetails = await transactionBuilder.send()
 
 ## Chipnet Usage
 
+Point the provider at chipnet and everything else follows:
+
 ```ts
 import { ElectrumNetworkProvider } from 'cashscript';
-import { getCauldronPools, prepareBuyTokens } from "@mr-zwets/cauldron-swap-sdk"
+import { CauldronManager } from "@mr-zwets/cauldron-swap-sdk"
 import { userTokenAddress, signer } from "./config"
 
 const chipnetTokenId = "53636bc8c1afbe35a7ba169eadfac0aebadeacf96954a9a066a483e885580ed4"
-const amountToBuy = 100n
 
-// fetch pools from chipnet indexer
-const cauldronPools = await getCauldronPools(chipnetTokenId, 'chipnet')
-
-// use a chipnet provider for the transaction
-const provider = new ElectrumNetworkProvider('chipnet')
-const { transactionBuilder } = await prepareBuyTokens(
-  cauldronPools,
-  amountToBuy,
-  userTokenAddress,
-  signer,
-  provider
-)
+const cauldron = new CauldronManager({ provider: new ElectrumNetworkProvider('chipnet') })
+const cauldronPools = await cauldron.getCauldronPools(chipnetTokenId)
+const { transactionBuilder } = await cauldron.prepareBuyTokens(cauldronPools, 100n, userTokenAddress, signer)
 
 const txDetails = await transactionBuilder.send()
 ```
 
+Using the standalone functions instead means passing the network to `getCauldronPools` and a matching
+provider to every prepare call, since they default to mainnet independently.
+
 ## Miner Fees
 
 Every prepare function targets an exact fee rate and settles it from the serialized transaction size,
-returning the remainder to the user in a BCH change output. The default is **1.2 sats/byte**, just above
-the 1 sat/byte relay floor.
+returning the remainder in a BCH change output. The default is **1.2 sats/byte**.
 
-Pass a different rate as the last argument of any prepare function:
+Set it once on the manager, or pass it as the last argument of a standalone prepare function:
 
 ```ts
-import { prepareBuyTokens, DEFAULT_FEE_RATE_SATS_PER_BYTE } from "@mr-zwets/cauldron-swap-sdk"
+const cauldron = new CauldronManager({ provider, feeRateSatsPerByte: 2 })
 
-// 2 sats/byte, for example to get a large transaction mined faster
+// or, standalone
 const { transactionBuilder } = await prepareBuyTokens(
-  cauldronPools,
-  amountToBuy,
-  userTokenAddress,
-  signer,
-  provider,
-  undefined,  // userUtxos
-  2,
+  cauldronPools, amountToBuy, userTokenAddress, signer, provider, undefined /* userUtxos */, 2,
 )
 
 // what the transaction actually pays
 const { feeSats, feeSatsPerByte } = transactionBuilder.calculateTransactionFee()
 ```
 
-The rate must be at least 1 (the relay policy floor) and below 10 sats/byte, which the builders pass as
-a `maximumFeeSatsPerByte` safety cap.
-
-Because a sell settles the fee from the transaction's whole BCH surplus, the sale proceeds can pay for it:
-`prepareSellTokens` no longer requires a separate BCH UTXO when the proceeds cover the fee. On a trade so
-small that the remainder after the fee is below the dust limit, no change output can be created and the
-remainder goes to the miner.
-
-Note that the change output locks the builder: cashscript refuses any further BCH input or output once a
-change output has been added, so a returned `transactionBuilder` can be inspected, signed and broadcast,
-but not extended with extra outputs.
+Settling the fee this way has consequences for output order, for extending the returned builder, and for
+trades small enough that the change would be dust — see [docs/fees.md](docs/fees.md).
 
 ## Errors
 
@@ -217,15 +222,14 @@ try {
 }
 ```
 
-`shortfallSats` is the amount that will make the transaction work, miner fee included. Everything else —
-invalid arguments, a non-token address, a fee rate out of range, a key that does not own the pool — throws
-a plain `Error`, since those are programming mistakes rather than states a user can resolve.
+`shortfallSats` is the amount that will make the transaction work, miner fee included. Everything else
+throws a plain `Error`, since those are programming mistakes rather than states a user can resolve.
 
 ## Custom Arifacts
 
 The Cauldron contract does not have a ready-to-go CashScript artifact, so custom artifacts were created to be able to use the CashScript SDK tooling.
 
-You can see the JSON artifacts in `src/artifact` and find an explanation of this in `artifacts.md`
+You can see the JSON artifacts in `src/artifact` and find an explanation of this in [docs/artifacts.md](docs/artifacts.md).
 
 ## Run the Tests
 
