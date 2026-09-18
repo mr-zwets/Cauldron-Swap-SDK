@@ -1,6 +1,6 @@
 {
   "name": "@mr-zwets/cauldron-swap-sdk",
-  "version": "0.1.10",
+  "version": "0.2.0",
   "scripts": {
     "prepare": "pnpm build",
     "build": "tsc",
