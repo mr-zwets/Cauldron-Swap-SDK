@@ -7,6 +7,7 @@ import {
 import { prepareSellTokens } from '../src/index.js';
 import { cauldronArtifactWithPkh, convertPoolToUtxo } from '../src/utils.js';
 import type { CauldronActivePool } from '../src/interfaces.js';
+import { expectFeeRate } from './utils.js';
 
 const testUserTokenAddress = "bitcoincash:zps99uejnueu4dsv0dd2m9u9uzxntg66nymvueqaan"
 const testUserWif = "KxjDY9xhYKGGCygpxUBpCp3QUBqY8kmUf2F1TE1P2Wr3eYuNWwjD"
@@ -21,12 +22,12 @@ const testFuruPool: CauldronActivePool = {
   txid: "aa183eb292e7b0c733988e931286bb0f47cf01cec12bd1b6d9c850def024e4bb"
 }
 
-function setupSellTx(userInputs: Utxo[]) {
+function setupSellTx(userInputs: Utxo[], pool: CauldronActivePool = testFuruPool) {
   const provider = new MockNetworkProvider();
   provider.network = 'mainnet';
   const options = { provider, contractType:'p2sh32' as const };
-  const cauldronContract = new Contract(cauldronArtifactWithPkh(testFuruPool.owner_pkh), [], options);
-  provider.addUtxo(cauldronContract.address, convertPoolToUtxo(testFuruPool))
+  const cauldronContract = new Contract(cauldronArtifactWithPkh(pool.owner_pkh), [], options);
+  provider.addUtxo(cauldronContract.address, convertPoolToUtxo(pool))
 
   for (const utxo of userInputs) {
     provider.addUtxo(testUserTokenAddress, utxo);
@@ -46,13 +47,30 @@ describe('prepareSellTokens', () => {
     await expect(promise).rejects.toThrow(/Insufficient tokens/)
   })
 
-  test('should fail when insufficient bch for fee', async() => {
+  test('should pay the fee from the sale proceeds without a separate bch input', async() => {
     const provider = setupSellTx([
       randomUtxo({ satoshis: 1000n, token: { category: testFuruPool.token_id, amount: 500n } }),
     ])
 
-    const promise = prepareSellTokens([testFuruPool], 100n, testUserTokenAddress, testUserWif, provider)
-    await expect(promise).rejects.toThrow(/missing userBchFeeInput/)
+    const { transactionBuilder } = await prepareSellTokens(
+      [testFuruPool], 100n, testUserTokenAddress, testUserWif, provider
+    )
+    expect(() => transactionBuilder.debug()).not.toThrow()
+
+    // every input is a pool or the user's token utxo, no separate bch fee input was needed
+    expect(transactionBuilder.inputs.every(input => input.token !== undefined)).toBe(true)
+    expectFeeRate(transactionBuilder)
+  })
+
+  test('should fail when the proceeds do not cover the fee', async() => {
+    // a pool priced at ~0.001 sats per token, so selling 100 tokens returns almost nothing
+    const dustPricedPool: CauldronActivePool = { ...testFuruPool, sats: 100_000, tokens: 100_000_000 }
+    const provider = setupSellTx([
+      randomUtxo({ satoshis: 546n, token: { category: dustPricedPool.token_id, amount: 500n } }),
+    ], dustPricedPool)
+
+    const promise = prepareSellTokens([dustPricedPool], 100n, testUserTokenAddress, testUserWif, provider)
+    await expect(promise).rejects.toThrow(/Insufficient BCH/)
   })
 
   test('should succeed with single token input', async() => {
@@ -68,8 +86,7 @@ describe('prepareSellTokens', () => {
     expect(() => transactionBuilder.debug()).not.toThrow()
 
     transactionBuilder.build()
-    const { feeSatsPerByte } = transactionBuilder.calculateTransactionFee()
-    expect(feeSatsPerByte > 1 && feeSatsPerByte < 5).toBe(true);
+    expectFeeRate(transactionBuilder)
   })
 
   test('should succeed with multiple small token inputs', async() => {
@@ -88,8 +105,7 @@ describe('prepareSellTokens', () => {
     expect(() => transactionBuilder.debug()).not.toThrow()
 
     transactionBuilder.build()
-    const { feeSatsPerByte } = transactionBuilder.calculateTransactionFee()
-    expect(feeSatsPerByte > 1 && feeSatsPerByte < 5).toBe(true);
+    expectFeeRate(transactionBuilder)
   })
 
   test('should succeed with exact token balance (no token change)', async() => {
@@ -105,8 +121,7 @@ describe('prepareSellTokens', () => {
     expect(() => transactionBuilder.debug()).not.toThrow()
 
     transactionBuilder.build()
-    const { feeSatsPerByte } = transactionBuilder.calculateTransactionFee()
-    expect(feeSatsPerByte > 1 && feeSatsPerByte < 5).toBe(true);
+    expectFeeRate(transactionBuilder)
   })
 
   test('should succeed with combined bch + tokens on single input', async() => {
@@ -122,7 +137,6 @@ describe('prepareSellTokens', () => {
     expect(() => transactionBuilder.debug()).not.toThrow()
     
     transactionBuilder.build()
-    const { feeSatsPerByte } = transactionBuilder.calculateTransactionFee()
-    expect(feeSatsPerByte > 1 && feeSatsPerByte < 5).toBe(true);
+    expectFeeRate(transactionBuilder)
   })
 })

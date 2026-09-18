@@ -11,9 +11,19 @@ import { binToHex, hash160, encodeCashAddress, CashAddressType, CashAddressNetwo
 import type { CauldronActivePool, CauldronGetActivePools } from './interfaces.js';
 import { cauldronArtifactWithPkh, convertPoolToUtxo, gatherBchUtxos, gatherTokenUtxos, validateTokenAddress } from './utils.js';
 import { ceilDiv, computeOptimalBuy, computeOptimalSell } from './multipool.js';
+import {
+  addBchChangeOutput,
+  assertValidFeeRate,
+  BUILDER_MAX_FEE_SATS_PER_BYTE,
+  calculateFeePerUserInput,
+  calculateSelectionFeeReserve,
+  DEFAULT_FEE_RATE_SATS_PER_BYTE,
+} from './fees.js';
 
 // re-export types and multipool functions from the library
 export type { CauldronActivePool, PoolAllocation } from './interfaces.js';
+export { InsufficientFundsError, InsufficientTokensError } from './errors.js';
+export { DEFAULT_FEE_RATE_SATS_PER_BYTE, BUILDER_MAX_FEE_SATS_PER_BYTE, assertValidFeeRate, calculateFeeForSize, calculateFeePerUserInput, calculateSelectionFeeReserve, addBchChangeOutput } from './fees.js';
 export { computeBuyAmountBelowRate, computeSellAmountAboveRate, computeOptimalBuy, computeOptimalSell, calcBuyFromPool, calcSellToPool, bestMarginalBuyRate, bestMarginalSellRate, computeEffectiveBuyImpact, computeEffectiveSellImpact, computeMarginalBuyImpact, computeMarginalSellImpact } from './multipool.js';
 
 export type CauldronNetwork = 'mainnet' | 'chipnet';
@@ -92,6 +102,7 @@ function buildCauldronInputsOutputs(
  * Prepare a buy-tokens transaction.
  *
  * @param userUtxos Pre-fetched UTXOs for `userTokenAddress`; skips the internal fetch.
+ * @param feeRateSatsPerByte Miner fee rate the transaction targets exactly. Defaults to 1.2 sat/byte.
  */
 export async function prepareBuyTokens(
   pools:CauldronActivePool[],
@@ -99,9 +110,11 @@ export async function prepareBuyTokens(
   userTokenAddress:string,
   signer:string | Uint8Array,
   provider:NetworkProvider = new ElectrumNetworkProvider('mainnet'),
-  userUtxos?:Utxo[]
+  userUtxos?:Utxo[],
+  feeRateSatsPerByte:number = DEFAULT_FEE_RATE_SATS_PER_BYTE
 ){
   validateTokenAddress(userTokenAddress)
+  assertValidFeeRate(feeRateSatsPerByte)
   if(amountToBuy <= 0n) throw new Error('amountToBuy must be a positive number')
   if(!pools.every(p => p.token_id === pools[0].token_id)) throw new Error('All pools must share the same token_id')
 
@@ -113,16 +126,18 @@ export async function prepareBuyTokens(
   const resolvedUserUtxos = userUtxos ?? await provider.getUtxos(userTokenAddress);
   const userBchUtxos = resolvedUserUtxos.filter(utxo => !utxo.token)
 
-  // calculate required bch input amount
+  // calculate required bch input amount, the exact fee is settled by the change output
   const totalSupply = allocations.reduce((sum, allocation) => sum + allocation.supplyAmount, 0n)
   const tokenOutputDust = 1000n
-  const baseFee = 2000n + 600n * BigInt(allocations.length - 1)
-  const requiredBchAmount = totalSupply + tokenOutputDust + baseFee
-
-  const { userBchInputTotal, bchInputUtxos } = gatherBchUtxos(userBchUtxos, requiredBchAmount)
+  const feeReserve = calculateSelectionFeeReserve(allocations.length, feeRateSatsPerByte)
+  // the trade cost and the token output have to be covered, the reserve on top is an over-estimate
+  const requiredBchAmount = totalSupply + tokenOutputDust
+  const feePerUserInput = calculateFeePerUserInput(feeRateSatsPerByte)
+  const { bchInputUtxos } = gatherBchUtxos(
+    userBchUtxos, requiredBchAmount + feeReserve, feePerUserInput, requiredBchAmount
+  )
 
   const tokenId = allocations[0].pool.token_id
-  const changeAmount = userBchInputTotal - requiredBchAmount
 
   const boughtTokensOutput:Recipient = {
     to: userTokenAddress,
@@ -133,20 +148,16 @@ export async function prepareBuyTokens(
     }
   }
 
-  const userChangeOutput:Recipient = {
-    to: userTokenAddress,
-    amount: changeAmount
-  }
-
   const userTemplate = new SignatureTemplate(signer)
 
   // build transaction — cauldron inputs/outputs first (OP_INPUTINDEX constraint)
-  const transactionBuilder = new TransactionBuilder({ provider, maximumFeeSatsPerByte: 5 })
+  const transactionBuilder = new TransactionBuilder({ provider, maximumFeeSatsPerByte: BUILDER_MAX_FEE_SATS_PER_BYTE })
   for (const cauldronInput of cauldronInputs) {
     transactionBuilder.addInput(cauldronInput.utxo, cauldronInput.contract.unlock.swap())
   }
   transactionBuilder.addInputs(bchInputUtxos, userTemplate.unlockP2PKH())
-    .addOutputs([...cauldronOutputs, boughtTokensOutput, userChangeOutput])
+    .addOutputs([...cauldronOutputs, boughtTokensOutput])
+  addBchChangeOutput(transactionBuilder, userTokenAddress, feeRateSatsPerByte)
 
   // all input utxos for external fee calculation
   const inputUtxos = [...cauldronInputs.map(cauldronInput => cauldronInput.utxo), ...bchInputUtxos]
@@ -157,7 +168,12 @@ export async function prepareBuyTokens(
 /**
  * Prepare a sell-tokens transaction.
  *
+ * `totalSatsReceived` is what the pools pay for the tokens, before the miner fee is deducted from it in
+ * the BCH change output. On a trade small enough that the remainder is dust, that output is dropped and
+ * the miner keeps it — compare against `transactionBuilder.calculateTransactionFee()` to see the net.
+ *
  * @param userUtxos Pre-fetched UTXOs for `userTokenAddress`; skips the internal fetch.
+ * @param feeRateSatsPerByte Miner fee rate the transaction targets exactly. Defaults to 1.2 sat/byte.
  */
 export async function prepareSellTokens(
   pools:CauldronActivePool[],
@@ -165,9 +181,11 @@ export async function prepareSellTokens(
   userTokenAddress:string,
   signer:string | Uint8Array,
   provider:NetworkProvider = new ElectrumNetworkProvider('mainnet'),
-  userUtxos?:Utxo[]
+  userUtxos?:Utxo[],
+  feeRateSatsPerByte:number = DEFAULT_FEE_RATE_SATS_PER_BYTE
 ){
   validateTokenAddress(userTokenAddress)
+  assertValidFeeRate(feeRateSatsPerByte)
   if(amountToSell <= 0n) throw new Error('amountToSell must be a positive number')
   if(!pools.every(p => p.token_id === pools[0].token_id)) throw new Error('All pools must share the same token_id')
 
@@ -184,29 +202,19 @@ export async function prepareSellTokens(
   // select token inputs
   const { userTokenInputTotal, userTokenInputs } = gatherTokenUtxos(userTokenUtxos, amountToSell)
 
-  // calculate transaction fee
+  // calculate required bch input amount, the exact fee is settled by the change output
   const tokenChangeAmount = userTokenInputTotal - amountToSell
-  const feePerUserInput = 180n
-  let requiredFee = 2000n + 600n * BigInt(allocations.length - 1)
-  requiredFee += feePerUserInput * BigInt(userTokenInputs.length)
-
-  // calculate required bch input amount
   const tokenChangeDust = tokenChangeAmount > 0n ? 1000n : 0n
-  const requiredBchAmount = requiredFee + tokenChangeDust
-
-  const userBchFeeInput = userBchUtxos.find(utxo => utxo.satoshis > requiredBchAmount)
-  if(!userBchFeeInput){
-    throw new Error(`missing userBchFeeInput with atleast requiredFee amount (${requiredBchAmount} sats)`)
-  }
-
-  // calculate change output
+  const feeReserve = calculateSelectionFeeReserve(allocations.length, feeRateSatsPerByte, userTokenInputs.length)
+  // the sale proceeds and the BCH sitting on the token inputs already cover part of the fee
   const bchOnTokenInputs = userTokenInputs.reduce((sum, utxo) => sum + utxo.satoshis, 0n)
-  const changeAmount = userBchFeeInput.satoshis - requiredFee - tokenChangeDust + bchOnTokenInputs
+  const bchAlreadyAvailable = totalUserReceive + bchOnTokenInputs
+  const shortfall = (needed: bigint) => needed > bchAlreadyAvailable ? needed - bchAlreadyAvailable : 0n
 
-  const userBchOutput:Recipient = {
-    to: userTokenAddress,
-    amount: totalUserReceive + changeAmount
-  }
+  const feePerUserInput = calculateFeePerUserInput(feeRateSatsPerByte)
+  const { bchInputUtxos } = gatherBchUtxos(
+    userBchUtxos, shortfall(tokenChangeDust + feeReserve), feePerUserInput, shortfall(tokenChangeDust)
+  )
 
   const tokenChangeOutput:Recipient = {
     to: userTokenAddress,
@@ -219,34 +227,40 @@ export async function prepareSellTokens(
 
   const userTemplate = new SignatureTemplate(signer)
 
-  // build transaction — cauldron inputs/outputs first (OP_INPUTINDEX constraint)
-  const outputs:Recipient[] = [...cauldronOutputs, userBchOutput]
+  // build transaction — cauldron inputs/outputs first (OP_INPUTINDEX constraint).
+  // The sale proceeds come back to the user in the BCH change output.
+  const outputs:Recipient[] = [...cauldronOutputs]
   if(tokenChangeAmount > 0n) outputs.push(tokenChangeOutput)
 
-  const transactionBuilder = new TransactionBuilder({ provider, maximumFeeSatsPerByte: 5 })
+  const transactionBuilder = new TransactionBuilder({ provider, maximumFeeSatsPerByte: BUILDER_MAX_FEE_SATS_PER_BYTE })
   for (const cauldronInput of cauldronInputs) {
     transactionBuilder.addInput(cauldronInput.utxo, cauldronInput.contract.unlock.swap())
   }
   transactionBuilder.addInputs(userTokenInputs, userTemplate.unlockP2PKH())
-    .addInput(userBchFeeInput, userTemplate.unlockP2PKH())
+    .addInputs(bchInputUtxos, userTemplate.unlockP2PKH())
     .addOutputs(outputs)
+  addBchChangeOutput(transactionBuilder, userTokenAddress, feeRateSatsPerByte)
 
   // all input utxos for external fee calculation
-  const inputUtxos = [...cauldronInputs.map(cauldronInput => cauldronInput.utxo), ...userTokenInputs, userBchFeeInput]
+  const inputUtxos = [...cauldronInputs.map(cauldronInput => cauldronInput.utxo), ...userTokenInputs, ...bchInputUtxos]
   const totalFees = allocations.reduce((sum, allocation) => sum + allocation.feeAmount, 0n)
   return { transactionBuilder, inputUtxos, totalSatsReceived: totalUserReceive, totalFees, effectivePricePerToken: totalUserReceive / amountToSell }
 }
 
 /**
  * Prepare a transaction that withdraws all BCH and tokens from a pool the signer owns.
+ *
+ * @param feeRateSatsPerByte Miner fee rate the transaction targets exactly. Defaults to 1.2 sat/byte.
  */
 export async function prepareWithdrawAll(
   pool:CauldronActivePool,
   userTokenAddress:string,
   signer:string | Uint8Array,
-  provider:NetworkProvider = new ElectrumNetworkProvider('mainnet')
+  provider:NetworkProvider = new ElectrumNetworkProvider('mainnet'),
+  feeRateSatsPerByte:number = DEFAULT_FEE_RATE_SATS_PER_BYTE
 ){
   validateTokenAddress(userTokenAddress)
+  assertValidFeeRate(feeRateSatsPerByte)
 
   // convert pool object to UTXO format
   const cauldronUtxo = convertPoolToUtxo(pool);
@@ -266,14 +280,6 @@ export async function prepareWithdrawAll(
   const options = { provider, contractType:'p2sh32' as const };
   const cauldronContract = new Contract(cauldronArtifact, [], options);
 
-  const requiredFee = 800n
-  const bchOutputAmount = BigInt(pool.sats) - 1000n - requiredFee
-
-  const userBchOutput:Recipient = {
-    to: userTokenAddress,
-    amount: bchOutputAmount
-  }
-
   const userTokenOutput:Recipient = {
     to: userTokenAddress,
     amount: 1000n,
@@ -283,9 +289,11 @@ export async function prepareWithdrawAll(
     }
   }
 
-  const transactionBuilder = new TransactionBuilder({ provider, maximumFeeSatsPerByte: 5 })
+  // the pool's BCH funds the fee, the remainder returns to the owner in the change output
+  const transactionBuilder = new TransactionBuilder({ provider, maximumFeeSatsPerByte: BUILDER_MAX_FEE_SATS_PER_BYTE })
     .addInput(cauldronUtxo, cauldronContract.unlock.managePool(ownerPk, ownerTemplate))
-    .addOutputs([userBchOutput, userTokenOutput])
+    .addOutput(userTokenOutput)
+  addBchChangeOutput(transactionBuilder, userTokenAddress, feeRateSatsPerByte)
 
   // all input utxos for external fee calculation
   const inputUtxos = [cauldronUtxo]
@@ -296,6 +304,7 @@ export async function prepareWithdrawAll(
  * Prepare a create-pool transaction.
  *
  * @param userUtxos Pre-fetched UTXOs for the owner's token address (derived from `signer`); skips the internal fetch.
+ * @param feeRateSatsPerByte Miner fee rate the transaction targets exactly. Defaults to 1.2 sat/byte.
  */
 export async function prepareCreatePool(
   tokenId:string,
@@ -304,8 +313,10 @@ export async function prepareCreatePool(
   signer:string | Uint8Array,
   network:CauldronNetwork = 'mainnet',
   provider:NetworkProvider = new ElectrumNetworkProvider(network),
-  userUtxos?:Utxo[]
+  userUtxos?:Utxo[],
+  feeRateSatsPerByte:number = DEFAULT_FEE_RATE_SATS_PER_BYTE
 ){
+  assertValidFeeRate(feeRateSatsPerByte)
   if(satsAmount <= 0n) throw new Error('satsAmount must be a positive number')
   if(tokenAmount <= 0n) throw new Error('tokenAmount must be a positive number')
 
@@ -328,19 +339,23 @@ export async function prepareCreatePool(
   // Select token inputs
   const { userTokenInputTotal, userTokenInputs } = gatherTokenUtxos(userTokenUtxos, tokenAmount)
 
-  // Calculate fees and required BCH
+  // Calculate required BCH, the exact fee is settled by the change output
   const tokenChangeAmount = userTokenInputTotal - tokenAmount
   const tokenChangeDust = tokenChangeAmount > 0n ? 1000n : 0n
-  const feePerUserInput = 180n
-  const baseFee = 2000n + feePerUserInput * BigInt(userTokenInputs.length)
-  const requiredBchAmount = satsAmount + tokenChangeDust + baseFee
-
-  // Select BCH inputs
-  const { userBchInputTotal, bchInputUtxos } = gatherBchUtxos(userBchUtxos, requiredBchAmount)
-
-  // BCH sitting on token input UTXOs
+  const feePerUserInput = calculateFeePerUserInput(feeRateSatsPerByte)
+  // no cauldron inputs are spent, only the pool output is created
+  const feeReserve = calculateSelectionFeeReserve(0, feeRateSatsPerByte, userTokenInputs.length)
+  // BCH sitting on token input UTXOs already covers part of the fee
   const bchOnTokenInputs = userTokenInputs.reduce((sum, utxo) => sum + utxo.satoshis, 0n)
-  const bchChange = userBchInputTotal + bchOnTokenInputs - requiredBchAmount
+  const shortfall = (needed: bigint) => needed > bchOnTokenInputs ? needed - bchOnTokenInputs : 0n
+
+  // Select BCH inputs, the reserve on top of the pool and dust amounts is an over-estimate
+  const { bchInputUtxos } = gatherBchUtxos(
+    userBchUtxos,
+    shortfall(satsAmount + tokenChangeDust + feeReserve),
+    feePerUserInput,
+    shortfall(satsAmount + tokenChangeDust),
+  )
 
   // Build outputs
   const poolOutput:Recipient = {
@@ -354,10 +369,6 @@ export async function prepareCreatePool(
 
   const changeOutputs:Recipient[] = []
 
-  if(bchChange > 0n){
-    changeOutputs.push({ to: userTokenAddress, amount: bchChange })
-  }
-
   if(tokenChangeAmount > 0n){
     changeOutputs.push({
       to: userTokenAddress,
@@ -369,13 +380,14 @@ export async function prepareCreatePool(
     })
   }
 
-  // Build transaction: pool output → OP_RETURN → change outputs
-  const transactionBuilder = new TransactionBuilder({ provider, maximumFeeSatsPerByte: 5 })
+  // Build transaction: pool output → OP_RETURN → token change → BCH change
+  const transactionBuilder = new TransactionBuilder({ provider, maximumFeeSatsPerByte: BUILDER_MAX_FEE_SATS_PER_BYTE })
   transactionBuilder.addInputs(userTokenInputs, signerTemplate.unlockP2PKH())
     .addInputs(bchInputUtxos, signerTemplate.unlockP2PKH())
     .addOutput(poolOutput)
     .addOpReturnOutput(['SUMMON', '0x' + ownerPkh])
     .addOutputs(changeOutputs)
+  addBchChangeOutput(transactionBuilder, userTokenAddress, feeRateSatsPerByte)
 
   const inputUtxos = [...userTokenInputs, ...bchInputUtxos]
   return { transactionBuilder, inputUtxos, poolContractAddress: cauldronContract.tokenAddress, ownerPkh }
