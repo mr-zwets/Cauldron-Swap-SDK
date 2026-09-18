@@ -1,3 +1,6 @@
+/** The networks Cauldron runs an indexer for. */
+export type CauldronNetwork = 'mainnet' | 'chipnet';
+
 export interface CauldronGetActivePools {
   active: CauldronActivePool[]
 }

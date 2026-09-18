@@ -25,10 +25,13 @@ pnpm test -- --run test/swap.test.ts  # run a single test file
 
 ### Key modules
 
-- `src/index.ts` — Exported API: `getCauldronPools`, `prepareBuyTokens`, `prepareSellTokens`, `prepareWithdrawAll`, `prepareCreatePool`
+- `src/index.ts` — Barrel re-exporting the public API, nothing else
+- `src/transactions.ts` — `prepareBuyTokens`, `prepareSellTokens`, `prepareWithdrawAll`, `prepareCreatePool`
+- `src/indexer.ts` — `getCauldronPools` and the indexer URLs
 - `src/multipool.ts` — Pure bigint math module for optimal trade splitting across multiple pools. Exports `computeOptimalBuy`, `computeOptimalSell`, rate-targeted helpers (`computeBuyAmountBelowRate`, `computeSellAmountAboveRate`), price-impact helpers (`bestMarginalBuyRate`, `bestMarginalSellRate`, `computeEffectiveBuyImpact`/`Sell`, `computeMarginalBuyImpact`/`Sell`), and math utilities (`isqrt`, `ceilDiv`, `calcBuyFromPool`, `calcSellToPool`)
 - `src/utils.ts` — `cauldronArtifactWithPkh()` patches a `<withdraw_pkh>` placeholder in artifact bytecode at runtime; `convertPoolToUtxo()` adapts pool data to CashScript UTXO format; `validateTokenAddress()` validates CashAddress is token-aware; `gatherBchUtxos()` / `gatherTokenUtxos()` for UTXO selection
-- `src/interfaces.ts` — `CauldronActivePool` and `PoolAllocation` type definitions
+- `src/interfaces.ts` — `CauldronActivePool`, `PoolAllocation` and `CauldronNetwork` type definitions
+- `src/fees.ts` / `src/errors.ts` — Fee rate handling and the typed funding errors
 - `src/artifact/` — Two custom CashScript JSON artifacts (swap and managePool) since the Cauldron contract is raw BCH Script, not CashScript (see `artifacts.md` for rationale)
 
 ### Why two artifacts
